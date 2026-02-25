@@ -1,0 +1,98 @@
+name: Build & Deploy Docs
+
+on:
+  schedule:
+    # Daily at 06:00 UTC
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout hadrian source
+        uses: actions/checkout@v4
+        with:
+          repository: scriptsmith/hadrian
+          path: hadrian
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Cache pnpm
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-docs-${{ hashFiles('hadrian/docs/pnpm-lock.yaml', 'hadrian/ui/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-docs-
+
+      # Build Storybook (docs embeds it via symlink)
+      - name: Install UI dependencies
+        working-directory: hadrian/ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate API client
+        working-directory: hadrian/ui
+        run: pnpm run generate-api
+
+      - name: Build Storybook
+        working-directory: hadrian/ui
+        run: pnpm storybook:build
+
+      # Build docs with basePath for GitHub Pages subpath
+      - name: Set basePath for GitHub Pages
+        working-directory: hadrian/docs
+        run: |
+          sed -i 's|trailingSlash: true,|trailingSlash: true,\n  basePath: "/hadrian-docs",|' next.config.mjs
+
+      - name: Install docs dependencies
+        working-directory: hadrian/docs
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate OpenAPI docs
+        working-directory: hadrian/docs
+        run: pnpm generate:openapi
+
+      - name: Build docs
+        working-directory: hadrian/docs
+        run: pnpm build
+
+      # No CNAME — serve from scriptsmith.github.io/hadrian-docs
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: hadrian/docs/out
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
