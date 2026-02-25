@@ -61,12 +61,6 @@ jobs:
         working-directory: hadrian/ui
         run: pnpm storybook:build
 
-      # Build docs with basePath for GitHub Pages subpath
-      - name: Set basePath for GitHub Pages
-        working-directory: hadrian/docs
-        run: |
-          sed -i 's|trailingSlash: true,|trailingSlash: true,\n  basePath: "/hadrian-docs",|' next.config.mjs
-
       - name: Install docs dependencies
         working-directory: hadrian/docs
         run: pnpm install --frozen-lockfile
@@ -78,6 +72,8 @@ jobs:
       - name: Build docs
         working-directory: hadrian/docs
         run: pnpm build
+        env:
+          DOCS_BASE_PATH: /hadrian-docs
 
       # No CNAME — serve from scriptsmith.github.io/hadrian-docs
       - name: Upload Pages artifact
